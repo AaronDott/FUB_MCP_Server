@@ -1647,118 +1647,105 @@ addTool(
 // ----------------------------
 
 // ----------------------------
-// Lambda Handler: MCP Server
+// Express Server: MCP
 // ----------------------------
+const express = require("express");
+const cors = require("cors");
+const fetch = require("node-fetch"); // Ensure node-fetch is installed
 
-exports.handler = async (event) => {
-    console.log("DEBUG: Handler started");
-    console.log("DEBUG: Full event =>", JSON.stringify(event));
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-    // Use rawPath from the event (Payload Format Version 2.0) to determine the route.
-    const requestPath = event.rawPath || "/";
-    const method = event.httpMethod || "GET";
-    console.log("DEBUG: requestPath =>", requestPath);
+// GET /sse: Return the tool list as an SSE event
+app.get("/sse", (req, res) => {
+  const toolsData = JSON.stringify(tools);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  // Send one SSE event with the tools data
+  res.write(`data: ${toolsData}\n\n`);
+  // Keep the connection open (do not call res.end())
+});
 
-    // If the route is /sse, return the tool list as an SSE event.
-    if (requestPath === "/sse" || requestPath === "/sse") {
-        const toolsData = JSON.stringify(tools);
-        return {
-            statusCode: 200,
-            headers: {
-                "Content-Type": "text/event-stream",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "Access-Control-Allow-Origin": "*"
-            },
-            body: `data: ${toolsData}\n\n`
-        };
-    } else if ((requestPath === "messages" || requestPath === "/messages") && method === "POST") {
-        // Process incoming MCP command for either listing tools or executing a tool.
-        try {
-            const body = event.body ? JSON.parse(event.body) : {};
-            if (body.list_tools || (body.tool_request && body.tool_request.name === "list_tools")) {
-                return {
-                    statusCode: 200,
-                    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-                    body: JSON.stringify({ tools })
-                };
-            } else if (body.tool_request) {
-                const toolName = body.tool_request.name;
-                const params = body.tool_request.parameters || {};
-                if (!toolMap[toolName]) {
-                    return { statusCode: 400, body: `Unknown tool: ${toolName}` };
-                }
-                const toolDef = toolMap[toolName];
-                // Construct the target URL for the FUB API call.
-                let url = `https://api.followupboss.com/v1${toolDef.path}`;
-                // Replace placeholders (like :id) in the URL with parameters.
-                if (url.includes(":")) {
-                    for (const key in params) {
-                        url = url.replace(`:${key}`, encodeURIComponent(params[key]));
-                    }
-                }
-                // For GET/DELETE, append remaining parameters as query string.
-                if (toolDef.method === "GET" || toolDef.method === "DELETE") {
-                    const queryParams = [];
-                    for (const [pKey, pVal] of Object.entries(params)) {
-                        if (toolDef.path.includes(`:${pKey}`)) continue;
-                        if (pVal === undefined || pVal === null) continue;
-                        queryParams.push(`${encodeURIComponent(pKey)}=${encodeURIComponent(pVal)}`);
-                    }
-                    if (queryParams.length > 0) {
-                        url += (url.includes("?") ? "&" : "?") + queryParams.join("&");
-                    }
-                }
-
-                // Prepare headers for FUB API call.
-                const apiKey = process.env.FUB_API_KEY || "";
-                const systemName = process.env.FUB_SYSTEM_NAME || "";
-                const systemKey = process.env.FUB_SYSTEM_KEY || "";
-                const authHeader = "Basic " + Buffer.from(apiKey + ":").toString("base64");
-                const baseHeaders = {
-                    "Authorization": authHeader,
-                    "Content-Type": "application/json"
-                };
-                if (systemName && systemKey) {
-                    baseHeaders["X-System"] = systemName;
-                    baseHeaders["X-System-Key"] = systemKey;
-                }
-                const fetchOptions = { method: toolDef.method, headers: { ...baseHeaders } };
-                if (["POST", "PUT", "PATCH"].includes(toolDef.method)) {
-                    fetchOptions.body = JSON.stringify(params.data || params);
-                }
-                console.log("DEBUG: Executing tool", toolName, "with URL", url);
-                const fubResponse = await fetch(url, fetchOptions);
-                const resultText = await fubResponse.text();
-                let resultData;
-                try {
-                    resultData = JSON.parse(resultText);
-                } catch {
-                    resultData = resultText || `${fubResponse.status} ${fubResponse.statusText}`;
-                }
-                const toolResponse = {
-                    status: fubResponse.status,
-                    statusText: fubResponse.statusText,
-                    data: resultData
-                };
-                return {
-                    statusCode: 200,
-                    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-                    body: JSON.stringify({ tool_response: toolResponse })
-                };
-            } else {
-                return { statusCode: 400, body: "Invalid request payload." };
-            }
-        } catch (error) {
-            console.error("Error processing message:", error);
-            return { statusCode: 500, body: `Server error: ${error.message}` };
+// POST /messages: Process incoming MCP commands
+app.post("/messages", async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.list_tools || (body.tool_request && body.tool_request.name === "list_tools")) {
+      return res.json({ tools });
+    } else if (body.tool_request) {
+      const toolName = body.tool_request.name;
+      const params = body.tool_request.parameters || {};
+      if (!toolMap[toolName]) {
+        return res.status(400).send(`Unknown tool: ${toolName}`);
+      }
+      const toolDef = toolMap[toolName];
+      let url = `https://api.followupboss.com/v1${toolDef.path}`;
+      if (url.includes(":")) {
+        for (const key in params) {
+          url = url.replace(`:${key}`, encodeURIComponent(params[key]));
         }
+      }
+      if (toolDef.method === "GET" || toolDef.method === "DELETE") {
+        const queryParams = [];
+        for (const [pKey, pVal] of Object.entries(params)) {
+          if (toolDef.path.includes(`:${pKey}`)) continue;
+          if (pVal === undefined || pVal === null) continue;
+          queryParams.push(`${encodeURIComponent(pKey)}=${encodeURIComponent(pVal)}`);
+        }
+        if (queryParams.length > 0) {
+          url += (url.includes("?") ? "&" : "?") + queryParams.join("&");
+        }
+      }
+      const apiKey = process.env.FUB_API_KEY || "";
+      const systemName = process.env.FUB_SYSTEM_NAME || "";
+      const systemKey = process.env.FUB_SYSTEM_KEY || "";
+      const authHeader = "Basic " + Buffer.from(apiKey + ":").toString("base64");
+      const baseHeaders = {
+        "Authorization": authHeader,
+        "Content-Type": "application/json"
+      };
+      if (systemName && systemKey) {
+        baseHeaders["X-System"] = systemName;
+        baseHeaders["X-System-Key"] = systemKey;
+      }
+      const fetchOptions = { method: toolDef.method, headers: { ...baseHeaders } };
+      if (["POST", "PUT", "PATCH"].includes(toolDef.method)) {
+        fetchOptions.body = JSON.stringify(params.data || params);
+      }
+      console.log("DEBUG: Executing tool", toolName, "with URL", url);
+      const fubResponse = await fetch(url, fetchOptions);
+      const resultText = await fubResponse.text();
+      let resultData;
+      try {
+        resultData = JSON.parse(resultText);
+      } catch {
+        resultData = resultText || `${fubResponse.status} ${fubResponse.statusText}`;
+      }
+      const toolResponse = {
+        status: fubResponse.status,
+        statusText: fubResponse.statusText,
+        data: resultData
+      };
+      return res.json({ tool_response: toolResponse });
     } else {
-        // Default response for unknown routes.
-        return {
-            statusCode: 200,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "ok", message: "Use /sse for SSE tool list or POST to /messages for tool execution." })
-        };
+      return res.status(400).send("Invalid request payload.");
     }
-};
+  } catch (error) {
+    console.error("Error processing message:", error);
+    return res.status(500).send(`Server error: ${error.message}`);
+  }
+});
+
+// Fallback route for all other requests
+app.all("*", (req, res) => {
+  res.json({ status: "ok", message: "Use /sse for SSE tool list or POST to /messages for tool execution." });
+});
+
+// Start the server on the port defined by process.env.PORT (Fly.io sets this) or default to 3000
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`MCP server listening on port ${port}`);
+});
