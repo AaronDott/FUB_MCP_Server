@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for fub-mcp-server-q5m65a on 2025-03-25T19:23:03Z
+# fly.toml app configuration file generated for fub-mcp-server on 2025-03-25T19:37:14Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'fub-mcp-server-q5m65a'
+app = 'fub-mcp-server'
 primary_region = 'dfw'
 
 [build]
