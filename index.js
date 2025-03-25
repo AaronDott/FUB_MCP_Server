@@ -1657,16 +1657,25 @@ app.use(cors());
 app.use(express.json());
 
 // GET /sse: Return the tool list as an SSE event
-app.get("/sse", (req, res) => {
-  const toolsData = JSON.stringify(tools);
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  // Send one SSE event with the tools data
-  res.write(`data: ${toolsData}\n\n`);
-  // Keep the connection open (do not call res.end())
-});
+711  app.get("/sse", (req, res) => {
+712    const toolsData = JSON.stringify(tools);
+713    res.setHeader("Content-Type", "text/event-stream");
+714    res.setHeader("Cache-Control", "no-cache");
+715    res.setHeader("Connection", "keep-alive");
+716    res.setHeader("Access-Control-Allow-Origin", "*");
+717    // Send one SSE event with the tools data
+718    res.write(`data: ${toolsData}\n\n`);
+719
+720    // Keepalive every 25 seconds
+721    const keepAliveInterval = setInterval(() => {
+722      res.write(`data: "ping"\n\n`);
+723    }, 25000);
+724
+725    // When the client disconnects, clear the keepalive interval
+726    req.on("close", () => {
+727      clearInterval(keepAliveInterval);
+728    });
+729  });
 
 // POST /messages: Process incoming MCP commands
 app.post("/messages", async (req, res) => {
