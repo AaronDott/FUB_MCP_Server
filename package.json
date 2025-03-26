@@ -1,16 +1,15 @@
 {
-  "name": "fub_mcp_server-main",
+  "name": "fub_mcp_server",
   "version": "1.0.0",
-  "description": "",
   "main": "index.js",
+  "bin": {
+    "fub-mcp-server": "./index.js"
+}
   "scripts": {
-    "start": "node index.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
-  }
+  "description": ""
 }
