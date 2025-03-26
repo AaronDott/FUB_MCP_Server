@@ -1673,7 +1673,22 @@ process.stdin.on('data', (chunk) => {
       try {
         const request = JSON.parse(line);
         // Check the method of the JSON-RPC request.
-        if (request.method === "tools/list") {
+if (request.method === "initialize") {
+  // Respond to the "initialize" call
+  const response = {
+    jsonrpc: "2.0",
+    id: request.id,
+    result: {
+      // Some minimal data that the n8n-nodes-mcp node might expect
+      success: true,
+      // You can add more info if you want:
+      serverName: "Follow Up Boss MCP STDIO Server",
+      version: "1.0.0"
+    }
+  };
+  process.stdout.write(JSON.stringify(response) + "\n");
+        
+      } else if (request.method === "tools/list") {
           // Respond with the list of tools.
           const response = {
             jsonrpc: "2.0",
