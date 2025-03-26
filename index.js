@@ -1683,7 +1683,10 @@ if (request.method === "initialize") {
       success: true,
       // You can add more info if you want:
       serverName: "Follow Up Boss MCP STDIO Server",
-      version: "1.0.0"
+      version: "1.0.0",
+      protocolVersion: "1.0.0",    // <-- the critical field
+      capabilities: []
+      // or capabilities: { ... } depending on what the node expects
     }
   };
   process.stdout.write(JSON.stringify(response) + "\n");
