@@ -2,8 +2,10 @@
 
 "use strict";
 
-const https = require('https');
-const { PassThrough } = require('stream');
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { ListToolsRequestSchema, CallToolRequestSchema, McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
+
 
 // ----------------------------
 // Tool Definitions Section (Optimized for AI Agent)
@@ -1648,100 +1650,49 @@ addTool(
 // End of Tool Definitions Section
 // ----------------------------
 
-// ----------------------------
-// STDIO JSON-RPC Server Code (for STDIO transport)
-// ----------------------------
+// --- New MCP SDK Server Initialization using the SDK ---
 
-// Set the encoding for stdin to UTF-8.
-process.stdin.setEncoding('utf8');
+// Create an MCP Server instance with a name and version.
+const server = new Server(
+  { name: "followupboss", version: "1.0.0" },
+  { capabilities: { tools: {} } }
+);
 
-// Create an empty buffer to accumulate data.
-let inputBuffer = '';
+// Register a handler to list the available tools.
+// When a client requests the list of tools, this will return your "tools" array.
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  return { tools };
+});
 
-// Listen for data on stdin.
-process.stdin.on('data', (chunk) => {
-  inputBuffer += chunk;
-  // Look for newline characters – assume each complete JSON-RPC request is terminated by a newline.
-  let newlineIndex;
-  while ((newlineIndex = inputBuffer.indexOf("\n")) !== -1) {
-    // Extract one complete line.
-    const line = inputBuffer.substring(0, newlineIndex);
-    // Remove the line from the buffer.
-    inputBuffer = inputBuffer.substring(newlineIndex + 1);
-    // If the line isn’t empty, process it.
-    if (line.trim()) {
-      try {
-        const request = JSON.parse(line);
-        // Check the method of the JSON-RPC request.
-if (request.method === "initialize") {
-  // Respond to the "initialize" call
-  const response = {
-    jsonrpc: "2.0",
-    id: request.id,
-    result: {
-      success: true,
-      message: "Follow Up Boss MCP STDIO Server is ready!",
-      serverName: "Follow Up Boss MCP STDIO Server",
-      version: "1.0.0",
-      protocolVersion: "1.0.0",
-      capabilities: {
-        tools: true
-      }    
+// Register a handler for executing tools.
+// In this example, we simulate execution for demonstration purposes.
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  try {
+    // For now, we simply simulate a response.
+    // Later, you can add specific cases for each tool.
+    switch (request.params.name) {
+      // Example: If you add a tool "list_people", you could handle it like this:
+      // case "list_people":
+      //   return { content: [{ type: "text", text: "Simulated response for list_people" }], isError: false };
+      default:
+        throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
     }
-  };
-  process.stdout.write(JSON.stringify(response) + "\n");
-        
-      } else if (request.method === "tools/list") {
-          // Respond with the list of tools.
-          const response = {
-            jsonrpc: "2.0",
-            id: request.id,
-            result: { tools }
-          };
-          process.stdout.write(JSON.stringify(response) + "\n");
-        } else if (request.method === "tools/execute") {
-          // Get the tool name and parameters from the request.
-          const toolName = request.params.name;
-          const params = request.params.parameters || {};
-          if (!toolMap[toolName]) {
-            const errorResponse = {
-              jsonrpc: "2.0",
-              id: request.id,
-              error: { code: -32601, message: `Unknown tool: ${toolName}` }
-            };
-            process.stdout.write(JSON.stringify(errorResponse) + "\n");
-          } else {
-            // Here you would call your actual tool‐execution code.
-            // For now, we just simulate a result:
-            const result = { executedTool: toolName, parameters: params };
-            const response = {
-              jsonrpc: "2.0",
-              id: request.id,
-              result: result
-            };
-            process.stdout.write(JSON.stringify(response) + "\n");
-          }
-        } else {
-          // If the method is unknown, return an error.
-          const errorResponse = {
-            jsonrpc: "2.0",
-            id: request.id,
-            error: { code: -32601, message: `Unknown method: ${request.method}` }
-          };
-          process.stdout.write(JSON.stringify(errorResponse) + "\n");
-        }
-      } catch (err) {
-        // Log errors to stderr (so they don’t mix with JSON output).
-        console.error("Error processing JSON-RPC request:", err);
-      }
-    }
+  } catch (error) {
+    return {
+      content: [{
+        type: "text",
+        text: `Error: ${error instanceof Error ? error.message : String(error)}`
+      }],
+      isError: true
+    };
   }
 });
 
-// When stdin ends, exit the process.
-process.stdin.on('end', () => {
-  console.error("STDIN closed. Exiting.");
-  process.exit(0);
-});
-
-console.error("MCP server is running in STDIO mode.");
+// Connect the server using STDIO transport.
+// This starts listening for JSON-RPC messages over STDIN/STDOUT.
+server.connect(new StdioServerTransport())
+  .then(() => console.error("Follow Up Boss MCP Server is running in STDIO mode"))
+  .catch((error) => {
+    console.error("Fatal error running server:", error);
+    process.exit(1);
+  });
