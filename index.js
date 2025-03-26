@@ -1679,18 +1679,14 @@ if (request.method === "initialize") {
     jsonrpc: "2.0",
     id: request.id,
     result: {
-      capabilities: {
-      // This can be empty, or you can add flags about what your server supports
-      },
-      // The MCP node also expects a "message" field (a string)
-      message: "Follow Up Boss MCP STDIO Server is ready!",
-      // Some minimal data that the n8n-nodes-mcp node might expect
       success: true,
-      // You can add more info if you want:
+      message: "Follow Up Boss MCP STDIO Server is ready!",
       serverName: "Follow Up Boss MCP STDIO Server",
       version: "1.0.0",
-      protocolVersion: "1.0.0"    // <-- the critical field
-      // or capabilities: { ... } depending on what the node expects
+      protocolVersion: "1.0.0",
+      capabilities: {
+        tools: true
+      }    
     }
   };
   process.stdout.write(JSON.stringify(response) + "\n");
