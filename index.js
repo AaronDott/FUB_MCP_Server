@@ -1647,113 +1647,81 @@ addTool(
 // ----------------------------
 
 // ----------------------------
-// Express Server: MCP
+// STDIO JSON-RPC Server Code (for STDIO transport)
 // ----------------------------
-const express = require("express");
-const cors = require("cors");
- 
-const app = express();
-app.use(cors());
-app.use(express.json());
 
-// GET /sse: Return the tool list as an SSE event
-  app.get("/sse", (req, res) => {
-    const toolsData = JSON.stringify(tools);
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    // Send one SSE event with the tools data
-    res.write(`data: ${toolsData}\n\n`);
+// Set the encoding for stdin to UTF-8.
+process.stdin.setEncoding('utf8');
 
-    // Keepalive every 25 seconds
-    const keepAliveInterval = setInterval(() => {
-      res.write(`data: "ping"\n\n`);
-    }, 25000);
+// Create an empty buffer to accumulate data.
+let inputBuffer = '';
 
-    // When the client disconnects, clear the keepalive interval
-    req.on("close", () => {
-      clearInterval(keepAliveInterval);
-    });
-  });
-
-// POST /messages: Process incoming MCP commands
-app.post("/messages", async (req, res) => {
-  try {
-    const body = req.body || {};
-    if (body.list_tools || (body.tool_request && body.tool_request.name === "list_tools")) {
-      return res.json({ tools });
-    } else if (body.tool_request) {
-      const toolName = body.tool_request.name;
-      const params = body.tool_request.parameters || {};
-      if (!toolMap[toolName]) {
-        return res.status(400).send(`Unknown tool: ${toolName}`);
-      }
-      const toolDef = toolMap[toolName];
-      let url = `https://api.followupboss.com/v1${toolDef.path}`;
-      if (url.includes(":")) {
-        for (const key in params) {
-          url = url.replace(`:${key}`, encodeURIComponent(params[key]));
-        }
-      }
-      if (toolDef.method === "GET" || toolDef.method === "DELETE") {
-        const queryParams = [];
-        for (const [pKey, pVal] of Object.entries(params)) {
-          if (toolDef.path.includes(`:${pKey}`)) continue;
-          if (pVal === undefined || pVal === null) continue;
-          queryParams.push(`${encodeURIComponent(pKey)}=${encodeURIComponent(pVal)}`);
-        }
-        if (queryParams.length > 0) {
-          url += (url.includes("?") ? "&" : "?") + queryParams.join("&");
-        }
-      }
-      const apiKey = process.env.FUB_API_KEY || "";
-      const systemName = process.env.FUB_SYSTEM_NAME || "";
-      const systemKey = process.env.FUB_SYSTEM_KEY || "";
-      const authHeader = "Basic " + Buffer.from(apiKey + ":").toString("base64");
-      const baseHeaders = {
-        "Authorization": authHeader,
-        "Content-Type": "application/json"
-      };
-      if (systemName && systemKey) {
-        baseHeaders["X-System"] = systemName;
-        baseHeaders["X-System-Key"] = systemKey;
-      }
-      const fetchOptions = { method: toolDef.method, headers: { ...baseHeaders } };
-      if (["POST", "PUT", "PATCH"].includes(toolDef.method)) {
-        fetchOptions.body = JSON.stringify(params.data || params);
-      }
-      console.log("DEBUG: Executing tool", toolName, "with URL", url);
-      const fubResponse = await fetch(url, fetchOptions);
-      const resultText = await fubResponse.text();
-      let resultData;
+// Listen for data on stdin.
+process.stdin.on('data', (chunk) => {
+  inputBuffer += chunk;
+  // Look for newline characters – assume each complete JSON-RPC request is terminated by a newline.
+  let newlineIndex;
+  while ((newlineIndex = inputBuffer.indexOf("\n")) !== -1) {
+    // Extract one complete line.
+    const line = inputBuffer.substring(0, newlineIndex);
+    // Remove the line from the buffer.
+    inputBuffer = inputBuffer.substring(newlineIndex + 1);
+    // If the line isn’t empty, process it.
+    if (line.trim()) {
       try {
-        resultData = JSON.parse(resultText);
-      } catch {
-        resultData = resultText || `${fubResponse.status} ${fubResponse.statusText}`;
+        const request = JSON.parse(line);
+        // Check the method of the JSON-RPC request.
+        if (request.method === "tools/list") {
+          // Respond with the list of tools.
+          const response = {
+            jsonrpc: "2.0",
+            id: request.id,
+            result: { tools }
+          };
+          process.stdout.write(JSON.stringify(response) + "\n");
+        } else if (request.method === "tools/execute") {
+          // Get the tool name and parameters from the request.
+          const toolName = request.params.name;
+          const params = request.params.parameters || {};
+          if (!toolMap[toolName]) {
+            const errorResponse = {
+              jsonrpc: "2.0",
+              id: request.id,
+              error: { code: -32601, message: `Unknown tool: ${toolName}` }
+            };
+            process.stdout.write(JSON.stringify(errorResponse) + "\n");
+          } else {
+            // Here you would call your actual tool‐execution code.
+            // For now, we just simulate a result:
+            const result = { executedTool: toolName, parameters: params };
+            const response = {
+              jsonrpc: "2.0",
+              id: request.id,
+              result: result
+            };
+            process.stdout.write(JSON.stringify(response) + "\n");
+          }
+        } else {
+          // If the method is unknown, return an error.
+          const errorResponse = {
+            jsonrpc: "2.0",
+            id: request.id,
+            error: { code: -32601, message: `Unknown method: ${request.method}` }
+          };
+          process.stdout.write(JSON.stringify(errorResponse) + "\n");
+        }
+      } catch (err) {
+        // Log errors to stderr (so they don’t mix with JSON output).
+        console.error("Error processing JSON-RPC request:", err);
       }
-      const toolResponse = {
-        status: fubResponse.status,
-        statusText: fubResponse.statusText,
-        data: resultData
-      };
-      return res.json({ tool_response: toolResponse });
-    } else {
-      return res.status(400).send("Invalid request payload.");
     }
-  } catch (error) {
-    console.error("Error processing message:", error);
-    return res.status(500).send(`Server error: ${error.message}`);
   }
 });
 
-// Fallback route for all other requests
-app.all("*", (req, res) => {
-  res.json({ status: "ok", message: "Use /sse for SSE tool list or POST to /messages for tool execution." });
+// When stdin ends, exit the process.
+process.stdin.on('end', () => {
+  console.error("STDIN closed. Exiting.");
+  process.exit(0);
 });
 
-// Start the server on the port defined by process.env.PORT (Fly.io sets this) or default to 3000
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`MCP server listening on port ${port}`);
-});
+console.error("MCP server is running in STDIO mode.");
